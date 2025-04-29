@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Google Authentication</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #4285F4;
+    }
+    .success {
+      color: #0F9D58;
+      font-size: 18px;
+      margin: 20px 0;
+    }
+    .error {
+      color: #DB4437;
+      font-size: 18px;
+      margin: 20px 0;
+    }
+    .token-info {
+      background-color: #f8f8f8;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 20px 0;
+      text-align: left;
+      word-break: break-all;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .loader {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #4285F4;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Google Authentication</h1>
+    <div id="loading">
+      <p>Processing authentication...</p>
+      <div class="loader"></div>
+    </div>
+    <div id="success" style="display: none;">
+      <p class="success">Authentication successful!</p>
+      <div class="token-info" id="token-display"></div>
+      <p>This window will close automatically.</p>
+    </div>
+    <div id="error" style="display: none;">
+      <p class="error">Authentication failed!</p>
+      <div class="token-info" id="error-display"></div>
+      <p>This window will close automatically.</p>
+    </div>
+  </div>
+
+  <script>
+    // Function to parse URL hash parameters
+    function parseHash() {
+      const hash = window.location.hash.substring(1);
+      const params = {};
+      
+      if (hash) {
+        // Try to parse as URL parameters
+        const segments = hash.split('&');
+        for (const segment of segments) {
+          const parts = segment.split('=');
+          if (parts.length === 2) {
+            params[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+          }
+        }
+        
+        // If we have an access_token, we're good
+        if (params.access_token) {
+          return {
+            success: true,
+            token: params.access_token,
+            expiresIn: params.expires_in,
+            tokenType: params.token_type,
+            scope: params.scope
+          };
+        }
+        
+        // If we have an error, return it
+        if (params.error) {
+          return {
+            success: false,
+            error: params.error,
+            errorDescription: params.error_description
+          };
+        }
+      }
+      
+      // Check for code in query parameters (for authorization code flow)
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      if (code) {
+        return {
+          success: true,
+          code: code
+        };
+      }
+      
+      // If we have no hash or code, check if the hash itself might be the token
+      if (hash && hash.length > 20 && !hash.includes('=')) {
+        return {
+          success: true,
+          token: hash
+        };
+      }
+      
+      // No token or error found
+      return {
+        success: false,
+        error: 'no_token',
+        errorDescription: 'No authentication token or code found in the URL'
+      };
+    }
+    
+    // Function to send message to parent window
+    function sendMessageToParent(data) {
+      if (window.opener) {
+        window.opener.postMessage(data, '*');
+        console.log('Sent message to parent:', data);
+      } else {
+        console.error('No parent window found');
+      }
+    }
+    
+    // Process the authentication response
+    function processAuth() {
+      const result = parseHash();
+      console.log('Auth result:', result);
+      
+      if (result.success) {
+        // Show success UI
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('success').style.display = 'block';
+        
+        // Display token info
+        const tokenDisplay = document.getElementById('token-display');
+        if (result.token) {
+          tokenDisplay.innerHTML = `
+            <strong>Access Token:</strong> ${result.token.substring(0, 20)}...<br>
+            <strong>Token Length:</strong> ${result.token.length} characters<br>
+            ${result.expiresIn ? `<strong>Expires In:</strong> ${result.expiresIn} seconds<br>` : ''}
+            ${result.tokenType ? `<strong>Token Type:</strong> ${result.tokenType}<br>` : ''}
+            ${result.scope ? `<strong>Scope:</strong> ${result.scope}<br>` : ''}
+          `;
+          
+          // Send token to parent window
+          sendMessageToParent({
+            type: 'GOOGLE_AUTH_SUCCESS',
+            token: result.token,
+            expiresIn: result.expiresIn,
+            tokenType: result.tokenType,
+            scope: result.scope
+          });
+        } else if (result.code) {
+          tokenDisplay.innerHTML = `
+            <strong>Authorization Code:</strong> ${result.code.substring(0, 20)}...<br>
+            <strong>Code Length:</strong> ${result.code.length} characters<br>
+          `;
+          
+          // Send code to parent window
+          sendMessageToParent({
+            type: 'GOOGLE_AUTH_CODE',
+            code: result.code
+          });
+        }
+        
+        // Close window after a delay
+        setTimeout(() => {
+          window.close();
+        }, 3000);
+      } else {
+        // Show error UI
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error').style.display = 'block';
+        
+        // Display error info
+        const errorDisplay = document.getElementById('error-display');
+        errorDisplay.innerHTML = `
+          <strong>Error:</strong> ${result.error || 'Unknown error'}<br>
+          ${result.errorDescription ? `<strong>Description:</strong> ${result.errorDescription}<br>` : ''}
+        `;
+        
+        // Send error to parent window
+        sendMessageToParent({
+          type: 'GOOGLE_AUTH_ERROR',
+          error: result.error || 'Unknown error',
+          errorDescription: result.errorDescription
+        });
+        
+        // Close window after a delay
+        setTimeout(() => {
+          window.close();
+        }, 5000);
+      }
+    }
+    
+    // Run when the page loads
+    window.onload = processAuth;
+  </script>
+</body>
+</html>

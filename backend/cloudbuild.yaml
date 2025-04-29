@@ -1,0 +1,37 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/sighted-backend', '.']
+
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/sighted-backend']
+
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'sighted-backend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/sighted-backend'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,FRONTEND_URL=https://sighted-82cad.web.app,REDIRECT_URI=https://sighted-82cad.web.app/oauth-callback'
+      - '--set-secrets'
+      - 'GEMINI_API_KEY=gemini-api-key:latest,GOOGLE_CLIENT_EMAIL=firebase-client-email:latest,GOOGLE_PRIVATE_KEY=firebase-private-key:latest,CLERK_SECRET_KEY=clerk-secret-key:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/sighted-backend'
+
+# Note: Before using this file, create the following secrets in Secret Manager:
+# gcloud secrets create gemini-api-key --data-file=<(echo -n "YOUR_GEMINI_API_KEY")
+# gcloud secrets create firebase-client-email --data-file=<(echo -n "firebase-adminsdk-fbsvc@sighted-82cad.iam.gserviceaccount.com")
+# gcloud secrets create firebase-private-key --data-file=<(echo -n "YOUR_PRIVATE_KEY")
+# gcloud secrets create clerk-secret-key --data-file=<(echo -n "sk_test_Ey1egVJyiUa05aTclYYYDyM7WfPHjb5eyM7lWuUBzu")
+# gcloud secrets create google-client-secret --data-file=<(echo -n "GOCSPX-Nt-Yd-Yd-Yd-Yd-Yd-Yd-Yd-Yd-Yd-Yd")

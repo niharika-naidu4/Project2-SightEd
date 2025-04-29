@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>OAuth Debug Page</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    h1 {
+      color: #4285F4;
+    }
+    .section {
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: #f9f9f9;
+      border-radius: 5px;
+    }
+    .token-display {
+      word-break: break-all;
+      background-color: #eee;
+      padding: 10px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    .success {
+      color: green;
+    }
+    .error {
+      color: red;
+    }
+    button {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>OAuth Debug Page</h1>
+    
+    <div class="section">
+      <h2>URL Information</h2>
+      <p><strong>Full URL:</strong> <span id="full-url"></span></p>
+      <p><strong>Hash:</strong> <span id="hash-value"></span></p>
+    </div>
+    
+    <div class="section">
+      <h2>Token Extraction Methods</h2>
+      
+      <div>
+        <h3>Method 1: URLSearchParams</h3>
+        <p id="method1-result"></p>
+        <div id="method1-token" class="token-display"></div>
+      </div>
+      
+      <div>
+        <h3>Method 2: Direct Parsing</h3>
+        <p id="method2-result"></p>
+        <div id="method2-token" class="token-display"></div>
+      </div>
+      
+      <div>
+        <h3>Method 3: Raw Hash</h3>
+        <p id="method3-result"></p>
+        <div id="method3-token" class="token-display"></div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>Token Storage</h2>
+      <p><strong>Current token in localStorage:</strong></p>
+      <div id="stored-token" class="token-display"></div>
+      <button id="save-token">Save Detected Token to localStorage</button>
+      <p id="save-result"></p>
+    </div>
+    
+    <div class="section">
+      <h2>Actions</h2>
+      <button id="clear-token">Clear Token from localStorage</button>
+      <button id="go-home">Go to Home Page</button>
+      <button id="try-auth">Try Authentication Again</button>
+    </div>
+  </div>
+
+  <script>
+    // Display URL information
+    document.getElementById('full-url').textContent = window.location.href;
+    
+    // Get and display the hash
+    const hash = window.location.hash.substring(1);
+    document.getElementById('hash-value').textContent = hash || '(empty)';
+    
+    // Method 1: URLSearchParams
+    let method1Token = null;
+    try {
+      const params = new URLSearchParams(hash);
+      method1Token = params.get('access_token');
+      if (method1Token) {
+        document.getElementById('method1-result').innerHTML = '<span class="success">Token found!</span>';
+        document.getElementById('method1-token').textContent = method1Token;
+      } else {
+        document.getElementById('method1-result').innerHTML = '<span class="error">No token found</span>';
+      }
+    } catch (e) {
+      document.getElementById('method1-result').innerHTML = `<span class="error">Error: ${e.message}</span>`;
+    }
+    
+    // Method 2: Direct parsing
+    let method2Token = null;
+    try {
+      if (hash.includes('access_token=')) {
+        const tokenPart = hash.split('access_token=')[1];
+        method2Token = tokenPart.split('&')[0];
+        document.getElementById('method2-result').innerHTML = '<span class="success">Token found!</span>';
+        document.getElementById('method2-token').textContent = method2Token;
+      } else {
+        document.getElementById('method2-result').innerHTML = '<span class="error">No token found</span>';
+      }
+    } catch (e) {
+      document.getElementById('method2-result').innerHTML = `<span class="error">Error: ${e.message}</span>`;
+    }
+    
+    // Method 3: Raw hash
+    let method3Token = null;
+    if (hash.length > 20 && !hash.includes('=')) {
+      method3Token = hash;
+      document.getElementById('method3-result').innerHTML = '<span class="success">Using hash as token</span>';
+      document.getElementById('method3-token').textContent = method3Token;
+    } else {
+      document.getElementById('method3-result').innerHTML = '<span class="error">Hash not suitable as token</span>';
+    }
+    
+    // Display current token from localStorage
+    const storedToken = localStorage.getItem('googleAccessToken');
+    if (storedToken) {
+      document.getElementById('stored-token').textContent = storedToken;
+    } else {
+      document.getElementById('stored-token').textContent = '(No token stored)';
+    }
+    
+    // Save token button
+    document.getElementById('save-token').addEventListener('click', function() {
+      const token = method1Token || method2Token || method3Token;
+      if (token) {
+        localStorage.setItem('googleAccessToken', token);
+        document.getElementById('save-result').innerHTML = '<span class="success">Token saved to localStorage!</span>';
+        document.getElementById('stored-token').textContent = token;
+      } else {
+        document.getElementById('save-result').innerHTML = '<span class="error">No token detected to save</span>';
+      }
+    });
+    
+    // Clear token button
+    document.getElementById('clear-token').addEventListener('click', function() {
+      localStorage.removeItem('googleAccessToken');
+      document.getElementById('stored-token').textContent = '(No token stored)';
+      document.getElementById('save-result').innerHTML = '<span class="success">Token cleared from localStorage</span>';
+    });
+    
+    // Go home button
+    document.getElementById('go-home').addEventListener('click', function() {
+      window.location.href = '/';
+    });
+    
+    // Try auth again button
+    document.getElementById('try-auth').addEventListener('click', function() {
+      const apiUrl = 'https://sighted-backend-c4pxtrk7la-uc.a.run.app';
+      const timestamp = new Date().getTime();
+      window.location.href = `${apiUrl}/auth/google-simple?t=${timestamp}`;
+    });
+  </script>
+</body>
+</html>

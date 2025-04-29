@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Google Photos Access</title>
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://accounts.google.com/gsi/client"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #4285F4;
+      margin-top: 0;
+    }
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background-color: #f9f9f9;
+      border-radius: 5px;
+    }
+    .button {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 0;
+      display: inline-block;
+      text-decoration: none;
+    }
+    .button:hover {
+      background-color: #3367D6;
+    }
+    .button.red {
+      background-color: #DB4437;
+    }
+    .button.red:hover {
+      background-color: #C53929;
+    }
+    .button.green {
+      background-color: #0F9D58;
+    }
+    .button.green:hover {
+      background-color: #0B8043;
+    }
+    .success {
+      color: #0F9D58;
+      font-weight: bold;
+    }
+    .error {
+      color: #DB4437;
+      font-weight: bold;
+    }
+    .hidden {
+      display: none;
+    }
+    #status {
+      margin: 20px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .loader {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #4285F4;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    #token-info {
+      background-color: #f0f0f0;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: monospace;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-top: 20px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Google Photos Access</h1>
+    
+    <div class="section">
+      <h2>Sign in with Google</h2>
+      <p>Click the button below to sign in with your Google account and grant access to your photos:</p>
+      
+      <div id="signin-button"></div>
+      <button id="authorize-button" class="button" style="display:none;">Sign in with Google Photos</button>
+      <button id="signout-button" class="button red" style="display:none;">Sign Out</button>
+      
+      <div id="status" class="hidden"></div>
+      
+      <div id="loading" class="hidden">
+        <p>Processing login...</p>
+        <div class="loader"></div>
+      </div>
+      
+      <div id="token-info"></div>
+    </div>
+    
+    <div id="actions" class="hidden">
+      <a href="/" class="button green">Return to App</a>
+    </div>
+  </div>
+
+  <script>
+    // Configuration
+    const CLIENT_ID = '438241696160-mf0vdpqfqftrmjl4377fo9e33tjtk8rv.apps.googleusercontent.com';
+    const API_KEY = 'AIzaSyDxLvzZJ2r0GYRbOF9Mj1cGYXHl2HXvcdE'; // This is a public API key, it's okay to expose it
+    const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/photoslibrary/v1/rest"];
+    const SCOPES = 'https://www.googleapis.com/auth/photoslibrary.readonly';
+    
+    // DOM Elements
+    const authorizeButton = document.getElementById('authorize-button');
+    const signoutButton = document.getElementById('signoutButton');
+    const statusElement = document.getElementById('status');
+    const loadingElement = document.getElementById('loading');
+    const actionsElement = document.getElementById('actions');
+    const tokenInfoElement = document.getElementById('token-info');
+    
+    // Function to show status message
+    function showStatus(message, isError = false) {
+      statusElement.textContent = message;
+      statusElement.className = isError ? 'error' : 'success';
+      statusElement.classList.remove('hidden');
+    }
+    
+    // Function to show/hide loading indicator
+    function setLoading(isLoading) {
+      loadingElement.classList.toggle('hidden', !isLoading);
+    }
+    
+    // Function to show actions
+    function showActions() {
+      actionsElement.classList.remove('hidden');
+    }
+    
+    // Function to initialize the Google API client
+    function initClient() {
+      gapi.client.init({
+        apiKey: API_KEY,
+        clientId: CLIENT_ID,
+        discoveryDocs: DISCOVERY_DOCS,
+        scope: SCOPES
+      }).then(function() {
+        // Listen for sign-in state changes
+        gapi.auth2.getAuthInstance().isSignedIn.listen(updateSigninStatus);
+        
+        // Handle the initial sign-in state
+        updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+        
+        // Set up button click handlers
+        authorizeButton.onclick = handleAuthClick;
+        authorizeButton.style.display = 'inline-block';
+        
+        if (signoutButton) {
+          signoutButton.onclick = handleSignoutClick;
+          signoutButton.style.display = 'none';
+        }
+      }).catch(function(error) {
+        console.error('Error initializing Google API client:', error);
+        showStatus('Error initializing Google API: ' + error.details, true);
+      });
+    }
+    
+    // Function to update UI based on sign-in status
+    function updateSigninStatus(isSignedIn) {
+      if (isSignedIn) {
+        // User is signed in
+        authorizeButton.style.display = 'none';
+        if (signoutButton) signoutButton.style.display = 'inline-block';
+        
+        // Get the auth instance
+        const authInstance = gapi.auth2.getAuthInstance();
+        const user = authInstance.currentUser.get();
+        const authResponse = user.getAuthResponse(true);
+        
+        // Store the token
+        const token = authResponse.access_token;
+        const expiresAt = authResponse.expires_at;
+        
+        localStorage.setItem('googleAccessToken', token);
+        localStorage.setItem('googleTokenExpiry', expiresAt.toString());
+        
+        // Show token info
+        tokenInfoElement.textContent = `Access Token: ${token.substring(0, 20)}...\nExpires: ${new Date(expiresAt).toLocaleString()}`;
+        tokenInfoElement.style.display = 'block';
+        
+        // Show success message
+        showStatus('Successfully signed in! You can now return to the app.');
+        showActions();
+      } else {
+        // User is not signed in
+        authorizeButton.style.display = 'inline-block';
+        if (signoutButton) signoutButton.style.display = 'none';
+        tokenInfoElement.style.display = 'none';
+      }
+    }
+    
+    // Function to handle authorization click
+    function handleAuthClick() {
+      setLoading(true);
+      showStatus('Connecting to Google Photos...');
+      
+      // Clear any existing tokens
+      localStorage.removeItem('googleAccessToken');
+      localStorage.removeItem('googleTokenExpiry');
+      
+      // Sign in with Google
+      gapi.auth2.getAuthInstance().signIn().then(
+        function(user) {
+          console.log('Sign-in successful', user);
+          setLoading(false);
+        },
+        function(error) {
+          console.error('Error signing in:', error);
+          setLoading(false);
+          showStatus('Error signing in: ' + error.error, true);
+        }
+      );
+    }
+    
+    // Function to handle sign-out click
+    function handleSignoutClick() {
+      // Sign out from Google
+      gapi.auth2.getAuthInstance().signOut().then(function() {
+        // Clear tokens
+        localStorage.removeItem('googleAccessToken');
+        localStorage.removeItem('googleTokenExpiry');
+        
+        showStatus('Signed out successfully');
+      });
+    }
+    
+    // Load the Google API client and auth2 library
+    function loadGoogleApi() {
+      gapi.load('client:auth2', initClient);
+    }
+    
+    // Initialize when the page loads
+    window.onload = function() {
+      // Load the Google API
+      loadGoogleApi();
+      
+      // Check if we already have a token
+      const existingToken = localStorage.getItem('googleAccessToken');
+      const expiryTime = localStorage.getItem('googleTokenExpiry');
+      
+      if (existingToken && expiryTime) {
+        const expiryDate = new Date(parseInt(expiryTime));
+        const now = new Date();
+        
+        if (expiryDate > now) {
+          // Token is still valid
+          showStatus('You are already signed in. You can return to the app or sign in again.');
+          showActions();
+          
+          // Show token info
+          tokenInfoElement.textContent = `Access Token: ${existingToken.substring(0, 20)}...\nExpires: ${expiryDate.toLocaleString()}`;
+          tokenInfoElement.style.display = 'block';
+        } else {
+          // Token is expired
+          showStatus('Your session has expired. Please sign in again.');
+          localStorage.removeItem('googleAccessToken');
+          localStorage.removeItem('googleTokenExpiry');
+        }
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Google Photos Authentication</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #4285F4;
+      margin-top: 0;
+    }
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background-color: #f9f9f9;
+      border-radius: 5px;
+    }
+    .button {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 0;
+      display: inline-block;
+      text-decoration: none;
+    }
+    .button:hover {
+      background-color: #3367D6;
+    }
+    .button.red {
+      background-color: #DB4437;
+    }
+    .button.red:hover {
+      background-color: #C53929;
+    }
+    .button.green {
+      background-color: #0F9D58;
+    }
+    .button.green:hover {
+      background-color: #0B8043;
+    }
+    .code-block {
+      background-color: #f0f0f0;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: monospace;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .success {
+      color: #0F9D58;
+    }
+    .error {
+      color: #DB4437;
+    }
+    .hidden {
+      display: none;
+    }
+    #token-display {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .loader {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #4285F4;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Google Photos Authentication</h1>
+
+    <div class="section" id="intro-section">
+      <h2>Direct Authentication</h2>
+      <p>This page will help you authenticate with Google Photos using a direct OAuth flow.</p>
+      <p>Click the button below to start the authentication process:</p>
+      <button class="button" id="start-auth">Authenticate with Google Photos</button>
+    </div>
+
+    <div class="section hidden" id="loading-section">
+      <h2>Authenticating...</h2>
+      <p>Please wait while we authenticate with Google Photos.</p>
+      <div class="loader"></div>
+    </div>
+
+    <div class="section hidden" id="success-section">
+      <h2 class="success">Authentication Successful!</h2>
+      <p>Your Google Photos access token has been successfully obtained and stored.</p>
+      <div class="code-block" id="token-display"></div>
+      <a href="/" class="button green">Return to App</a>
+    </div>
+
+    <div class="section hidden" id="error-section">
+      <h2 class="error">Authentication Failed</h2>
+      <p>There was a problem authenticating with Google Photos.</p>
+      <div class="code-block" id="error-display"></div>
+      <button class="button" id="retry-auth">Try Again</button>
+      <a href="/" class="button red">Return to App</a>
+    </div>
+
+    <div class="section hidden" id="debug-section">
+      <h2>Debug Information</h2>
+      <div class="code-block" id="debug-info"></div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration
+    const CLIENT_ID = '438241696160-mf0vdpqfqftrmjl4377fo9e33tjtk8rv.apps.googleusercontent.com';
+    // Use a redirect URI that's already registered in the Google Cloud Console
+    const REDIRECT_URI = 'https://sighted-backend-c4pxtrk7la-uc.a.run.app/auth/google/callback';
+    const SCOPE = 'https://www.googleapis.com/auth/photoslibrary.readonly';
+
+    // DOM Elements
+    const introSection = document.getElementById('intro-section');
+    const loadingSection = document.getElementById('loading-section');
+    const successSection = document.getElementById('success-section');
+    const errorSection = document.getElementById('error-section');
+    const debugSection = document.getElementById('debug-section');
+    const tokenDisplay = document.getElementById('token-display');
+    const errorDisplay = document.getElementById('error-display');
+    const debugInfo = document.getElementById('debug-info');
+    const startAuthButton = document.getElementById('start-auth');
+    const retryAuthButton = document.getElementById('retry-auth');
+
+    // Helper function to show a section and hide others
+    function showSection(sectionId) {
+      [introSection, loadingSection, successSection, errorSection].forEach(section => {
+        section.classList.add('hidden');
+      });
+      document.getElementById(sectionId).classList.remove('hidden');
+    }
+
+    // Helper function to log debug info
+    function logDebug(message, data = null) {
+      const timestamp = new Date().toISOString();
+      let logMessage = `[${timestamp}] ${message}`;
+
+      if (data) {
+        console.log(logMessage, data);
+        logMessage += '\n' + JSON.stringify(data, null, 2);
+      } else {
+        console.log(logMessage);
+      }
+
+      debugInfo.textContent += logMessage + '\n\n';
+      debugSection.classList.remove('hidden');
+    }
+
+    // Function to start the authentication process
+    function startAuth() {
+      logDebug('Starting authentication process');
+      showSection('loading-section');
+
+      // Clear any existing tokens
+      localStorage.removeItem('googleAccessToken');
+      localStorage.removeItem('googleRefreshToken');
+      localStorage.removeItem('googleTokenExpiry');
+      localStorage.removeItem('googleAuthError');
+
+      // Build the auth URL - using code response type instead of token
+      const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth' +
+        '?client_id=' + encodeURIComponent(CLIENT_ID) +
+        '&redirect_uri=' + encodeURIComponent(REDIRECT_URI) +
+        '&scope=' + encodeURIComponent(SCOPE) +
+        '&response_type=code' +  // Use authorization code flow
+        '&prompt=consent select_account' +
+        '&access_type=offline';
+
+      logDebug('Auth URL', authUrl);
+
+      // Open a popup window for authentication
+      const popup = window.open(authUrl, 'googleAuthPopup', 'width=600,height=600');
+
+      // Check if popup was blocked
+      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+        logDebug('Popup was blocked');
+        showSection('error-section');
+        errorDisplay.textContent = 'Popup was blocked by your browser. Please allow popups for this site and try again.';
+        return;
+      }
+
+      // Poll the popup location to detect when it gets redirected to our redirect URI
+      const popupCheckInterval = setInterval(() => {
+        try {
+          // This will throw an error if the popup is redirected to a different origin due to CORS
+          if (popup.closed) {
+            clearInterval(popupCheckInterval);
+            logDebug('Popup was closed');
+            showSection('error-section');
+            errorDisplay.textContent = 'Authentication window was closed before completing the process.';
+            return;
+          }
+
+          // Try to check the popup location
+          const popupUrl = popup.location.href;
+          logDebug('Popup URL', popupUrl);
+
+          // Check if the popup was redirected to our redirect URI
+          if (popupUrl.startsWith(REDIRECT_URI) || popupUrl.includes('/auth/google/callback')) {
+            clearInterval(popupCheckInterval);
+            popup.close();
+
+            // Extract the authorization code from the URL
+            const urlParams = new URLSearchParams(popupUrl.split('?')[1]);
+            const code = urlParams.get('code');
+
+            if (code) {
+              logDebug('Authorization code received', code);
+
+              // Exchange the code for a token using our backend
+              exchangeCodeForToken(code);
+            } else {
+              logDebug('No authorization code found in the redirect URL');
+              showSection('error-section');
+              errorDisplay.textContent = 'No authorization code was received from Google.';
+            }
+          }
+        } catch (error) {
+          // CORS error or other issue - this is expected when the popup navigates to a different origin
+          // Just continue polling
+        }
+      }, 500);
+    }
+
+    // Function to exchange the authorization code for a token
+    async function exchangeCodeForToken(code) {
+      logDebug('Exchanging code for token');
+      showSection('loading-section');
+
+      try {
+        // Use the Google OAuth token endpoint directly
+        const tokenEndpoint = 'https://oauth2.googleapis.com/token';
+        const params = new URLSearchParams();
+        params.append('client_id', CLIENT_ID);
+        params.append('code', code);
+        params.append('redirect_uri', REDIRECT_URI);
+        params.append('grant_type', 'authorization_code');
+
+        // Make the request
+        const response = await fetch(tokenEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: params
+        });
+
+        // Parse the response
+        const data = await response.json();
+        logDebug('Token response', data);
+
+        if (data.access_token) {
+          // Success! We have a token
+          const token = data.access_token;
+          const refreshToken = data.refresh_token;
+          const expiresIn = data.expires_in;
+          const tokenType = data.token_type;
+
+          // Store the tokens
+          localStorage.setItem('googleAccessToken', token);
+          if (refreshToken) {
+            localStorage.setItem('googleRefreshToken', refreshToken);
+          }
+          if (expiresIn) {
+            const expiryTime = Date.now() + (expiresIn * 1000);
+            localStorage.setItem('googleTokenExpiry', expiryTime.toString());
+          }
+
+          // Display success
+          tokenDisplay.textContent = `Access Token: ${token.substring(0, 20)}...\nToken Length: ${token.length} characters\nExpires In: ${expiresIn} seconds\nToken Type: ${tokenType}`;
+          showSection('success-section');
+        } else if (data.error) {
+          // Error from Google
+          logDebug('Token error', data);
+          showSection('error-section');
+          errorDisplay.textContent = `Error: ${data.error}\nDescription: ${data.error_description || 'No description provided'}`;
+        } else {
+          // Unknown response
+          logDebug('Unknown token response', data);
+          showSection('error-section');
+          errorDisplay.textContent = 'Received an unexpected response from Google.';
+        }
+      } catch (error) {
+        logDebug('Error exchanging code for token', error);
+        showSection('error-section');
+        errorDisplay.textContent = `Error exchanging code for token: ${error.message}`;
+      }
+    }
+
+    // Function to handle the authentication response
+    function handleAuthResponse() {
+      logDebug('Handling authentication response');
+
+      // Check for token in URL fragment
+      const hash = window.location.hash.substring(1);
+      logDebug('URL hash', hash);
+
+      if (hash) {
+        // Parse the hash parameters
+        const params = {};
+        hash.split('&').forEach(param => {
+          const [key, value] = param.split('=');
+          params[key] = decodeURIComponent(value);
+        });
+
+        logDebug('Parsed params', params);
+
+        if (params.access_token) {
+          // Success! We have a token
+          const token = params.access_token;
+          const expiresIn = params.expires_in;
+          const tokenType = params.token_type;
+
+          logDebug('Token received', {
+            tokenLength: token.length,
+            expiresIn,
+            tokenType
+          });
+
+          // Store the token
+          localStorage.setItem('googleAccessToken', token);
+
+          // Display success
+          tokenDisplay.textContent = `Access Token: ${token.substring(0, 20)}...\nToken Length: ${token.length} characters\nExpires In: ${expiresIn} seconds\nToken Type: ${tokenType}`;
+          showSection('success-section');
+
+          // Clear the hash from the URL
+          history.replaceState(null, null, window.location.pathname);
+
+          return true;
+        } else if (params.error) {
+          // Error from Google
+          const error = params.error;
+          const errorDescription = params.error_description || 'No description provided';
+
+          logDebug('Auth error', { error, errorDescription });
+
+          // Display error
+          errorDisplay.textContent = `Error: ${error}\nDescription: ${errorDescription}`;
+          showSection('error-section');
+
+          // Store the error
+          localStorage.setItem('googleAuthError', `Authentication failed: ${error} - ${errorDescription}`);
+
+          // Clear the hash from the URL
+          history.replaceState(null, null, window.location.pathname);
+
+          return false;
+        }
+      }
+
+      // No token or error in URL, show the intro section
+      logDebug('No token or error found in URL');
+      showSection('intro-section');
+      return false;
+    }
+
+    // Event listeners
+    startAuthButton.addEventListener('click', startAuth);
+    retryAuthButton.addEventListener('click', startAuth);
+
+    // Initialize
+    window.onload = function() {
+      logDebug('Page loaded');
+      handleAuthResponse();
+    };
+  </script>
+</body>
+</html>

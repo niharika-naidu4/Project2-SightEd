@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Google Photos Login</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+      text-align: center;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #4285F4;
+      margin-top: 0;
+    }
+    p {
+      margin-bottom: 20px;
+    }
+    .button {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 0;
+      display: inline-block;
+      text-decoration: none;
+    }
+    .button:hover {
+      background-color: #3367D6;
+    }
+    .button.green {
+      background-color: #0F9D58;
+    }
+    .button.green:hover {
+      background-color: #0B8043;
+    }
+    .success {
+      color: #0F9D58;
+      font-weight: bold;
+    }
+    .error {
+      color: #DB4437;
+      font-weight: bold;
+    }
+    .hidden {
+      display: none;
+    }
+    #login-container {
+      margin: 30px 0;
+    }
+    #status {
+      margin: 20px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .loader {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #4285F4;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Google Photos Login</h1>
+
+    <p>Please sign in with your Google account to access your photos:</p>
+
+    <div id="login-container">
+      <button id="authorize-button" class="button">Sign in with Google Photos</button>
+    </div>
+
+    <div id="status" class="hidden"></div>
+
+    <div id="loading" class="hidden">
+      <p>Processing login...</p>
+      <div class="loader"></div>
+    </div>
+
+    <div id="actions" class="hidden">
+      <a href="/" class="button green">Return to App</a>
+    </div>
+  </div>
+
+  <script>
+    // OAuth configuration
+    const CLIENT_ID = '438241696160-mf0vdpqfqftrmjl4377fo9e33tjtk8rv.apps.googleusercontent.com';
+    const REDIRECT_URI = window.location.origin + '/direct-google-login.html';
+    const SCOPE = 'https://www.googleapis.com/auth/photoslibrary.readonly';
+
+    // Function to show status message
+    function showStatus(message, isError = false) {
+      const statusElement = document.getElementById('status');
+      statusElement.textContent = message;
+      statusElement.className = isError ? 'error' : 'success';
+      statusElement.classList.remove('hidden');
+    }
+
+    // Function to show/hide loading indicator
+    function setLoading(isLoading) {
+      document.getElementById('loading').classList.toggle('hidden', !isLoading);
+    }
+
+    // Function to show actions
+    function showActions() {
+      document.getElementById('actions').classList.remove('hidden');
+    }
+
+    // Function to handle OAuth flow
+    function handleAuthClick() {
+      // Clear any existing tokens
+      localStorage.removeItem('googleAccessToken');
+      localStorage.removeItem('googleRefreshToken');
+      localStorage.removeItem('googleTokenExpiry');
+
+      setLoading(true);
+      showStatus('Connecting to Google Photos...');
+
+      // Create OAuth URL
+      const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth' +
+        '?client_id=' + encodeURIComponent(CLIENT_ID) +
+        '&redirect_uri=' + encodeURIComponent(REDIRECT_URI) +
+        '&response_type=token' +
+        '&scope=' + encodeURIComponent(SCOPE) +
+        '&prompt=consent select_account' +
+        '&access_type=online';
+
+      // Redirect to Google's auth page
+      window.location.href = authUrl;
+    }
+
+    // Function to parse URL hash parameters
+    function parseHash() {
+      const hash = window.location.hash.substring(1);
+      const params = {};
+
+      if (hash) {
+        hash.split('&').forEach(param => {
+          const [key, value] = param.split('=');
+          params[key] = decodeURIComponent(value);
+        });
+      }
+
+      return params;
+    }
+
+    // Function to handle the OAuth response
+    function handleAuthResponse() {
+      const params = parseHash();
+
+      if (params.access_token) {
+        // Success! We have a token
+        const token = params.access_token;
+        const expiresIn = params.expires_in;
+        const tokenType = params.token_type;
+
+        // Store the token
+        localStorage.setItem('googleAccessToken', token);
+
+        // If we have an expiry time, store it
+        if (expiresIn) {
+          const expiryTime = Date.now() + (parseInt(expiresIn) * 1000);
+          localStorage.setItem('googleTokenExpiry', expiryTime.toString());
+        }
+
+        // Show success message
+        showStatus(`Successfully signed in! Token expires in ${expiresIn} seconds.`);
+        showActions();
+
+        // Clear the hash from the URL
+        window.history.replaceState(null, null, window.location.pathname);
+
+        return true;
+      } else if (params.error) {
+        // Error from Google
+        showStatus('Authentication error: ' + params.error, true);
+        showActions();
+
+        // Clear the hash from the URL
+        window.history.replaceState(null, null, window.location.pathname);
+
+        return false;
+      }
+
+      return null;
+    }
+
+    // Initialize when the page loads
+    window.onload = function() {
+      // Check if we have a response in the URL
+      const authResult = handleAuthResponse();
+
+      if (authResult === null) {
+        // No response in URL, check if we already have a token
+        const existingToken = localStorage.getItem('googleAccessToken');
+        if (existingToken) {
+          // Check if the token is expired
+          const expiryTime = localStorage.getItem('googleTokenExpiry');
+          if (expiryTime && parseInt(expiryTime) < Date.now()) {
+            // Token is expired
+            showStatus('Your session has expired. Please sign in again.', true);
+          } else {
+            showStatus('You are already signed in. You can return to the app or sign in again.');
+            showActions();
+          }
+        }
+      }
+
+      // Add event listener to the authorize button
+      document.getElementById('authorize-button').addEventListener('click', handleAuthClick);
+    };
+  </script>
+</body>
+</html>
